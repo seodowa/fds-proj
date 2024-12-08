@@ -3,9 +3,11 @@ VALID_TABLE_NAMES = ["customer", "emergency_contact", "employee", "employee_desi
 # TODO: TEST THESE FUNCTIONS
 
 # this is for quick n easy sql statements
-def execute_sql_stmt(conn, stmt):
+def execute_sql_stmt(conn, stmt, is_select_stmt=False):
     cursor = conn.cursor()
     cursor.execute(stmt)
+    if is_select_stmt:
+        return [item for item in cursor]
     conn.commit()
 
 
@@ -113,13 +115,20 @@ def insert_orders_data(conn, customer_id, employee_id):
 
 
 def insert_order_transactions_data(conn, order_id, dish_id, mode_of_payment_id,
-                                   dish_quantity, total_price, date_time_of_order):
+                                   dish_quantity):
     cursor = conn.cursor()
+
+    cursor.execute("SELECT (dish_price * %s) FROM menu WHERE dish_id = %s", (dish_quantity, dish_id))
+    total_price = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT NOW()")
+    date_time = cursor.fetchone()[0]
+
     cursor.execute("INSERT INTO order_transactions (order_id, dish_id, \
                    mode_of_payment_id, dish_quantity, total_price, date_time_of_order) \
                    VALUES (%s, %s, %s, %s, %s, %s)", 
                    (order_id, dish_id, mode_of_payment_id, 
-                    dish_quantity, total_price, date_time_of_order))
+                    dish_quantity, total_price, date_time))
     conn.commit()
 
 
@@ -310,6 +319,9 @@ def delete_from_restaurant(conn, restaurant_id):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM restaurant WHERE restaurant_id = %s", (restaurant_id,))
     conn.commit()
+
+
+# extra funcs
 
 
 if __name__ == "__main__":
