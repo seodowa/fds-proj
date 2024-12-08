@@ -1,4 +1,6 @@
 VALID_TABLE_NAMES = ["customer", "emergency_contact", "employee", "employee_designation", "employment_status", "menu", "mode_of_payment", "orders", "order_transactions", "restaurant"]
+VAT = 1.12 # 12%
+
 
 # TODO: TEST THESE FUNCTIONS
 
@@ -7,7 +9,7 @@ def execute_sql_stmt(conn, stmt, is_select_stmt=False):
     cursor = conn.cursor()
     cursor.execute(stmt)
     if is_select_stmt:
-        return [item for item in cursor]
+        return cursor.fetchone()
     conn.commit()
 
 
@@ -18,6 +20,22 @@ def view_table(conn, tblname):
         cursor.execute(f"SELECT * FROM {tblname}")
     return [item for item in cursor]
 
+
+def get_receipt_details(conn, order_id):
+    cursor = conn.cursor()
+    cursor.execute("SELECT orders.order_id, order_type_name, customer.first_name, customer.middle_name, customer.last_name, customer.suffix,\
+                   customer.barangay_address, customer.city_address, customer.province_address, SUM(order_transactions.dish_price), \
+                   SUM(tax), SUM(total_price), employee.first_name, employee.middle_name, employee.last_name, employee.suffix, \
+                   order_transactions.date_time_of_order \
+                   FROM orders INNER JOIN customer ON customer.customer_id = orders.customer_id \
+                   INNER JOIN order_transactions ON orders.order_id = order_transactions.order_id \
+                   INNER JOIN order_type ON order_type.id = order_transactions.order_type_id \
+                   INNER JOIN mode_of_payment ON mode_of_payment.mode_of_payment_id = order_transactions.mode_of_payment_id \
+                   INNER JOIN employee ON orders.employee_id = employee.employee_id \
+                   INNER JOIN menu ON order_transactions.dish_id = menu.dish_id \
+                   WHERE orders.order_id = %s", (order_id,))
+    return cursor.fetchone()
+    
 
 # INSERT/CREATE DATA
 def insert_menu_data(conn, dish_name, dish_price):
@@ -114,21 +132,30 @@ def insert_orders_data(conn, customer_id, employee_id):
 
 
 
-def insert_order_transactions_data(conn, order_id, dish_id, mode_of_payment_id,
+def insert_order_transactions_data(conn, order_id, dish_id, mode_of_payment_id, order_type_id,
                                    dish_quantity):
     cursor = conn.cursor()
 
-    cursor.execute("SELECT (dish_price * %s) FROM menu WHERE dish_id = %s", (dish_quantity, dish_id))
-    total_price = cursor.fetchone()[0]
+    cursor.execute("SELECT dish_price, (dish_price * %s) * %s FROM menu WHERE dish_id = %s", (VAT, dish_quantity, dish_id))
+    prices = cursor.fetchone()
     
     cursor.execute("SELECT NOW()")
     date_time = cursor.fetchone()[0]
 
+    total_before_tax = prices[0] * dish_quantity
+    added_vat = total_before_tax * (VAT-1)
+
     cursor.execute("INSERT INTO order_transactions (order_id, dish_id, \
-                   mode_of_payment_id, dish_quantity, total_price, date_time_of_order) \
-                   VALUES (%s, %s, %s, %s, %s, %s)", 
-                   (order_id, dish_id, mode_of_payment_id, 
-                    dish_quantity, total_price, date_time))
+                   mode_of_payment_id, order_type_id, dish_price, dish_quantity, total_before_tax, value_added_tax, total_price, date_time_of_order) \
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
+                   (order_id, dish_id, mode_of_payment_id, order_type_id, prices[0],
+                    dish_quantity, total_before_tax, added_vat, prices[1], date_time))
+    conn.commit()
+
+
+def insert_order_type_data(conn, order_type_name):
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO order_type (order_type_name) VALUES (%s)", (order_type_name,))
     conn.commit()
 
 
@@ -241,15 +268,21 @@ def update_orders_data(conn, order_id, customer_id, employee_id):
 
 
 def update_order_transactions_data(conn, order_transaction_id, order_id,
-                                   dish_id, mode_of_payment_id, dish_quantity,
-                                   total_price, date_time_of_order):
+                                   dish_id, mode_of_payment_id, order_type_id, dish_price, dish_quantity, total_before_tax,
+                                   value_added_tax, total_price, date_time_of_order):
     cursor = conn.cursor()
     cursor.execute("UPDATE order_transactions SET order_id = %s, \
-                   dish_id = %s, mode_of_payment_id = %s, dish_quantity = %s, \
-                   total_price = %s, date_time_of_order = %s WHERE \
-                   order_transaction_id = %s", (order_id, dish_id, mode_of_payment_id,
-                                                dish_quantity, total_price, date_time_of_order,
+                   dish_id = %s, mode_of_payment_id = %s, order_type_id = %s, dish_price = %s, dish_quantity = %s, total_before_tax = %s, \
+                   value_added_tax = %s, total_price = %s, date_time_of_order = %s WHERE \
+                   order_transaction_id = %s", (order_id, dish_id, mode_of_payment_id, order_type_id, dish_price,
+                                                dish_quantity, total_before_tax, value_added_tax, total_price, date_time_of_order,
                                                 order_transaction_id))
+    conn.commit()
+
+
+def update_order_type_data(conn, id, order_type_name):
+    cursor = conn.cursor()
+    cursor.execute("UPDATE order_type SET order_type_name = %s WHERE id = %s", (order_type_name, id))
     conn.commit()
 
 
@@ -312,6 +345,12 @@ def delete_from_orders(conn, order_id):
 def delete_from_order_transactions(conn, order_transaction_id):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM order_transactions WHERE order_transaction_id = %s", (order_transaction_id,))
+    conn.commit()
+
+
+def delete_from_order_type(conn, id):
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM order_type WHERE id = %s", (id,))
     conn.commit()
 
 
