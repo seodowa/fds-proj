@@ -158,9 +158,6 @@ def insert_order_transactions_data(conn, order_id, dish_id, mode_of_payment_id, 
     cursor.execute("SELECT NOW()")
     date_time = cursor.fetchone()[0]
 
-    total_before_tax = prices[0] * dish_quantity
-    added_vat = total_before_tax * (VAT-1)
-
     cursor.execute("INSERT INTO order_transactions (order_id, dish_id, \
                    mode_of_payment_id, order_type_id, dish_quantity, date_time_of_order) \
                    VALUES (%s, %s, %s, %s, %s, %s)", 
