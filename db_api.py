@@ -1,9 +1,6 @@
 VALID_TABLE_NAMES = ["customer", "emergency_contact", "employee", "employee_designation", "employment_status", "menu", "mode_of_payment", "orders", "order_transactions", "restaurant"]
 VAT = 1.12 # 12%
 
-VAT = 1.12 # 12%
-
-
 # TODO: TEST THESE FUNCTIONS
 
 # this is for quick n easy sql statements
@@ -11,7 +8,6 @@ def execute_sql_stmt(conn, stmt, is_select_stmt=False):
     cursor = conn.cursor()
     cursor.execute(stmt)
     if is_select_stmt:
-        return cursor.fetchone()
         return cursor.fetchone()
     conn.commit()
 
@@ -24,12 +20,20 @@ def view_table(conn, tblname):
     return [item for item in cursor]
 
 
+def view_orders(conn, order_id):
+    cursor = conn.cursor()
+    cursor.execute("SELECT order_id, dish_name, dish_quantity, order_type_name, mode_of_payment_name FROM menu INNER JOIN order_transactions \
+                   ON order_transactions.dish_id = menu.dish_id INNER JOIN order_type ON id = order_type_id \
+                   INNER JOIN mode_of_payment ON mode_of_payment.mode_of_payment_id = order_transactions.mode_of_payment_id \
+                   WHERE order_id = %s", (order_id,))
+    return cursor.fetchall()
+
+
 def get_receipt_details(conn, order_id):
     cursor = conn.cursor()
     cursor.execute("SELECT orders.order_id, order_type_name, customer.first_name, customer.middle_name, customer.last_name, customer.suffix,\
-                   customer.barangay_address, customer.city_address, customer.province_address, SUM(order_transactions.dish_price), \
-                   SUM(tax), SUM(total_price), employee.first_name, employee.middle_name, employee.last_name, employee.suffix, \
-                   order_transactions.date_time_of_order \
+                   customer.barangay_address, customer.city_address, customer.province_address, employee.first_name, employee.middle_name, \
+                   employee.last_name, employee.suffix, order_transactions.date_time_of_order \
                    FROM orders INNER JOIN customer ON customer.customer_id = orders.customer_id \
                    INNER JOIN order_transactions ON orders.order_id = order_transactions.order_id \
                    INNER JOIN order_type ON order_type.id = order_transactions.order_type_id \
@@ -37,24 +41,42 @@ def get_receipt_details(conn, order_id):
                    INNER JOIN employee ON orders.employee_id = employee.employee_id \
                    INNER JOIN menu ON order_transactions.dish_id = menu.dish_id \
                    WHERE orders.order_id = %s", (order_id,))
-    return cursor.fetchone()
     
+    details_list = cursor.fetchall()[0]
 
+    # get all the dish prices from the order and do calculations
+    cursor.execute("SELECT dish_price FROM menu INNER JOIN order_transactions \
+                                      ON order_transactions.dish_id = menu.dish_id WHERE order_id = %s", (order_id,))
+    dish_prices = cursor.fetchall()
+    total_before_tax = sum([price[0] for price in dish_prices]) 
 
-def get_receipt_details(conn, order_id):
-    cursor = conn.cursor()
-    cursor.execute("SELECT orders.order_id, order_type_name, customer.first_name, customer.middle_name, customer.last_name, customer.suffix,\
-                   customer.barangay_address, customer.city_address, customer.province_address, SUM(order_transactions.dish_price), \
-                   SUM(tax), SUM(total_price), employee.first_name, employee.middle_name, employee.last_name, employee.suffix, \
-                   order_transactions.date_time_of_order \
-                   FROM orders INNER JOIN customer ON customer.customer_id = orders.customer_id \
-                   INNER JOIN order_transactions ON orders.order_id = order_transactions.order_id \
-                   INNER JOIN order_type ON order_type.id = order_transactions.order_type_id \
-                   INNER JOIN mode_of_payment ON mode_of_payment.mode_of_payment_id = order_transactions.mode_of_payment_id \
-                   INNER JOIN employee ON orders.employee_id = employee.employee_id \
-                   INNER JOIN menu ON order_transactions.dish_id = menu.dish_id \
-                   WHERE orders.order_id = %s", (order_id,))
-    return cursor.fetchone()
+    cursor.execute("SELECT dish_name, dish_price FROM menu INNER JOIN order_transactions \
+                   ON order_transactions.dish_id = menu.dish_id WHERE order_id = %s", (order_id,))
+    # [(dish name, dish price)]
+    dishes_ordered = cursor.fetchall()
+
+    details_dict = {
+        "order id": order_id,
+        "order type": details_list[1],
+        "customer first name": details_list[2],
+        "customer middle name": details_list[3],
+        "customer last name": details_list[4],
+        "customer suffix": details_list[5],
+        "barangay address": details_list[6],
+        "city address": details_list[7],
+        "province address": details_list[8],
+        "order": dishes_ordered,
+        "total before tax": total_before_tax,
+        "value added tax": round(total_before_tax * (VAT-1), 2),
+        "total price": round(total_before_tax * VAT, 2),
+        "employee first name": details_list[9],
+        "employee middle name": details_list[10],
+        "employee last name": details_list[11],
+        "employee suffix": details_list[12],
+        "datetime of order": details_list[13]
+    }
+    
+    return details_dict
     
 
 # INSERT/CREATE DATA
